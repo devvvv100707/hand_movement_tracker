@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hand Tracker · MEGA Edition</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #07080f; --surface: #0e1018; --accent: #7ec8e3;
+      --accent2: #ff6b9d; --accent3: #4ecca3; --text: #c8d8e8;
+      --muted: #4a5568; --border: rgba(126,200,227,0.15);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:var(--bg); color:var(--text); font-family:'Space Mono',monospace; overflow:hidden; height:100vh; width:100vw; }
+    #app { display:grid; grid-template-columns:220px 1fr 220px; grid-template-rows:56px 1fr 90px; height:100vh; width:100vw; }
+
+    header { grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; padding:0 24px; border-bottom:1px solid var(--border); background:var(--surface); }
+    header h1 { font-family:'Syne',sans-serif; font-size:18px; font-weight:800; color:white; }
+    header h1 span { color:var(--accent); }
+    #status-bar { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); }
+    #status-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); transition:background 0.3s,box-shadow 0.3s; }
+    #status-dot.active { background:var(--accent3); box-shadow:0 0 10px var(--accent3); }
+    #fps-display { color:var(--accent); font-size:11px; }
+
+    #panel-left { grid-row:2; border-right:1px solid var(--border); padding:14px 12px; display:flex; flex-direction:column; gap:14px; background:var(--surface); overflow-y:auto; }
+    #panel-right { grid-row:2; border-left:1px solid var(--border); padding:14px 12px; display:flex; flex-direction:column; gap:12px; background:var(--surface); overflow-y:auto; }
+    .panel-section h2 { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:9px; }
+
+    .shape-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+    .shape-btn { background:transparent; border:1px solid var(--border); color:var(--muted); font-family:'Space Mono',monospace; font-size:10px; padding:7px 4px; border-radius:6px; cursor:pointer; transition:all 0.2s; text-align:center; }
+    .shape-btn:hover { border-color:rgba(126,200,227,0.4); color:var(--accent); }
+    .shape-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(126,200,227,0.08); }
+    .shape-btn .icon { display:block; font-size:16px; margin-bottom:2px; }
+
+    .color-row { display:flex; gap:7px; flex-wrap:wrap; }
+    .color-swatch { width:26px; height:26px; border-radius:50%; cursor:pointer; border:2px solid transparent; transition:border 0.2s,transform 0.2s; }
+    .color-swatch:hover { transform:scale(1.2); }
+    .color-swatch.active { border-color:white; }
+
+    .slider-row { display:flex; flex-direction:column; gap:4px; }
+    .slider-label { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); }
+    .slider-label span { color:var(--accent); }
+    input[type="range"] { width:100%; -webkit-appearance:none; height:3px; background:var(--border); border-radius:2px; outline:none; cursor:pointer; }
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; width:13px; height:13px; border-radius:50%; background:var(--accent); cursor:pointer; }
+
+    .toggle-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+    .toggle-btn { background:transparent; border:1px solid var(--border); color:var(--muted); font-family:'Space Mono',monospace; font-size:9px; padding:7px 4px; border-radius:6px; cursor:pointer; transition:all 0.2s; text-align:center; line-height:1.5; }
+    .toggle-btn:hover { border-color:rgba(126,200,227,0.4); color:var(--accent); }
+    .toggle-btn.on { border-color:var(--accent3); color:var(--accent3); background:rgba(78,204,163,0.1); }
+    .toggle-btn.on-hot { border-color:#ff6b9d; color:#ff6b9d; background:rgba(255,107,157,0.1); }
+
+    #main { grid-row:2; position:relative; overflow:hidden; }
+    #three-canvas { position:absolute; top:0; left:0; width:100%; height:100%; }
+    #trail-canvas { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+
+    #combo-display { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); font-family:'Syne',sans-serif; font-size:72px; font-weight:800; color:white; text-align:center; pointer-events:none; opacity:0; transition:opacity 0.3s; text-shadow:0 0 40px currentColor; z-index:5; white-space:nowrap; }
+    #combo-sub { font-size:16px; font-weight:400; margin-top:-8px; letter-spacing:3px; }
+    #score-display { position:absolute; top:14px; right:14px; font-family:'Syne',sans-serif; font-size:26px; font-weight:800; color:var(--accent); text-align:right; pointer-events:none; }
+    #score-display small { display:block; font-size:10px; font-weight:400; color:var(--muted); font-family:'Space Mono',monospace; }
+    #gesture-badge { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); font-family:'Space Mono',monospace; font-size:11px; padding:5px 16px; border-radius:20px; border:1px solid var(--border); background:rgba(14,16,24,0.85); color:var(--accent); letter-spacing:1px; pointer-events:none; transition:all 0.3s; white-space:nowrap; }
+
+    #start-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(7,8,15,0.95); gap:12px; z-index:10; }
+    #start-overlay h2 { font-family:'Syne',sans-serif; font-size:30px; font-weight:800; color:white; text-align:center; }
+    #start-overlay .tagline { font-size:12px; color:var(--muted); text-align:center; max-width:300px; line-height:2; }
+    #start-btn { background:transparent; border:1px solid var(--accent); color:var(--accent); font-family:'Space Mono',monospace; font-size:13px; padding:14px 40px; border-radius:6px; cursor:pointer; letter-spacing:1px; transition:all 0.25s; }
+    #start-btn:hover { background:rgba(126,200,227,0.12); box-shadow:0 0 30px rgba(126,200,227,0.2); }
+    #loading-msg { font-size:11px; color:var(--muted); display:none; }
+    .feature-pills { display:flex; gap:7px; flex-wrap:wrap; justify-content:center; max-width:360px; }
+    .pill { font-size:10px; padding:4px 10px; border-radius:20px; border:1px solid var(--border); color:var(--muted); }
+
+    #video-wrap { position:absolute; top:10px; left:10px; width:150px; border-radius:8px; overflow:hidden; border:1px solid var(--border); background:#000; display:none; }
+    #video { width:100%; display:block; transform:scaleX(-1); }
+    #canvas-overlay { position:absolute; top:0; left:0; width:100%; height:100%; transform:scaleX(-1); pointer-events:none; }
+    .video-label { position:absolute; bottom:0; left:0; right:0; background:rgba(0,0,0,0.6); font-size:9px; padding:3px 6px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+
+    .stat-card { background:rgba(126,200,227,0.05); border:1px solid var(--border); border-radius:8px; padding:8px 10px; }
+    .stat-label { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
+    .stat-value { font-size:20px; font-weight:700; color:var(--accent); font-family:'Syne',sans-serif; }
+    .stat-sub { font-size:10px; color:var(--muted); margin-top:1px; }
+    .data-table { width:100%; }
+    .data-row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.04); font-size:11px; }
+    .data-row:last-child { border-bottom:none; }
+    .data-key { color:var(--muted); } .data-val { color:var(--accent); font-weight:700; }
+    #gesture-display { font-family:'Syne',sans-serif; font-size:20px; font-weight:800; color:white; min-height:28px; transition:color 0.3s; }
+
+    #bottom-bar { grid-column:1/-1; display:flex; align-items:center; border-top:1px solid var(--border); background:var(--surface); overflow:hidden; }
+    .gesture-hint { flex:1; display:flex; align-items:center; gap:7px; padding:0 12px; border-right:1px solid var(--border); height:100%; }
+    .gesture-hint:last-child { border-right:none; }
+    .gh-icon { font-size:18px; flex-shrink:0; }
+    .gh-title { font-size:10px; font-weight:700; color:white; margin-bottom:1px; }
+    .gh-desc { font-size:9px; color:var(--muted); line-height:1.4; }
+
+    .explosion-particle { position:absolute; border-radius:50%; pointer-events:none; z-index:8; animation:explode 0.9s ease-out forwards; }
+    @keyframes explode { 0%{opacity:1;transform:translate(0,0) scale(1);} 100%{opacity:0;transform:translate(var(--tx),var(--ty)) scale(0.1);} }
+
+    #streak-notif { position:absolute; top:72px; left:50%; transform:translateX(-50%); font-family:'Syne',sans-serif; font-size:14px; font-weight:700; padding:7px 22px; border-radius:20px; border:1px solid rgba(255,200,0,0.4); background:rgba(255,200,0,0.1); color:#ffd700; pointer-events:none; opacity:0; transition:opacity 0.4s; z-index:9; white-space:nowrap; }
+    #rainbow-overlay { position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity 0.5s; z-index:2; background:linear-gradient(45deg,rgba(255,0,128,0.07),rgba(0,200,255,0.07),rgba(128,255,0,0.07)); animation:rainbowShift 3s linear infinite; }
+    @keyframes rainbowShift { 0%{filter:hue-rotate(0deg);} 100%{filter:hue-rotate(360deg);} }
+    #flash { position:absolute; inset:0; background:white; pointer-events:none; opacity:0; z-index:7; transition:opacity 0.12s; }
+
+    #music-viz { position:absolute; bottom:0; left:0; right:0; height:36px; display:flex; align-items:flex-end; gap:2px; padding:0 3px; pointer-events:none; opacity:0.35; }
+    .viz-bar { flex:1; background:var(--accent); border-radius:2px 2px 0 0; min-height:2px; }
+
+    #kbd-hint { position:absolute; top:14px; left:50%; transform:translateX(-50%); font-size:9px; color:var(--muted); letter-spacing:1px; pointer-events:none; opacity:0.6; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <h1>hand<span>·</span>tracker <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px;">MEGA EDITION</span></h1>
+    <div id="status-bar">
+      <div id="status-dot"></div>
+      <span id="status-txt">camera off</span>
+      <span style="margin:0 8px;color:var(--border);">|</span>
+      <span id="fps-display">-- fps</span>
+    </div>
+  </header>
+
+  <!-- LEFT PANEL -->
+  <div id="panel-left">
+    <div class="panel-section">
+      <h2>Shape</h2>
+      <div class="shape-grid">
+        <button class="shape-btn active" onclick="setShape(0)"><span class="icon">⬛</span>cube</button>
+        <button class="shape-btn" onclick="setShape(1)"><span class="icon">⭕</span>sphere</button>
+        <button class="shape-btn" onclick="setShape(2)"><span class="icon">🔘</span>torus</button>
+        <button class="shape-btn" onclick="setShape(3)"><span class="icon">🔷</span>octa</button>
+        <button class="shape-btn" onclick="setShape(4)"><span class="icon">🔺</span>icosa</button>
+        <button class="shape-btn" onclick="setShape(5)"><span class="icon">💠</span>cone</button>
+        <button class="shape-btn" onclick="setShape(6)"><span class="icon">💎</span>knot</button>
+        <button class="shape-btn" onclick="setShape(7)"><span class="icon">🌀</span>ring</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h2>Wire Color</h2>
+      <div class="color-row">
+        <div class="color-swatch active" style="background:#7ec8e3" onclick="setWireColor(0x7ec8e3,this)"></div>
+        <div class="color-swatch" style="background:#ff6b9d" onclick="setWireColor(0xff6b9d,this)"></div>
+        <div class="color-swatch" style="background:#4ecca3" onclick="setWireColor(0x4ecca3,this)"></div>
+        <div class="color-swatch" style="background:#f7c59f" onclick="setWireColor(0xf7c59f,this)"></div>
+        <div class="color-swatch" style="background:#a78bfa" onclick="setWireColor(0xa78bfa,this)"></div>
+        <div class="color-swatch" style="background:#ffd700" onclick="setWireColor(0xffd700,this)"></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h2>Fun Modes <span style="font-size:8px;color:var(--muted);">(keyboard: r g t x m d w h)</span></h2>
+      <div class="toggle-grid">
+        <button class="toggle-btn" id="btn-rainbow" onclick="toggleMode('rainbow')">🌈 Rainbow</button>
+        <button class="toggle-btn" id="btn-gravity" onclick="toggleMode('gravity')">🌍 Gravity</button>
+        <button class="toggle-btn" id="btn-trail" onclick="toggleMode('trail')">✨ Trails</button>
+        <button class="toggle-btn" id="btn-explode" onclick="toggleMode('explode')">💥 Explode</button>
+        <button class="toggle-btn" id="btn-multi" onclick="toggleMode('multi')">🎭 Multi</button>
+        <button class="toggle-btn" id="btn-disco" onclick="toggleMode('disco')">🪩 Disco</button>
+        <button class="toggle-btn" id="btn-wobble" onclick="toggleMode('wobble')">🌊 Wobble</button>
+        <button class="toggle-btn" id="btn-ghost" onclick="toggleMode('ghost')">👻 Ghost</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h2>Settings</h2>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="slider-row">
+          <div class="slider-label">Sensitivity <span id="sens-val">5</span></div>
+          <input type="range" min="1" max="10" value="5" oninput="sensitivity=+this.value;document.getElementById('sens-val').textContent=this.value" />
+        </div>
+        <div class="slider-row">
+          <div class="slider-label">Smoothing <span id="smooth-val">10</span></div>
+          <input type="range" min="2" max="25" value="10" oninput="smoothing=+this.value/100;document.getElementById('smooth-val').textContent=this.value" />
+        </div>
+        <div class="slider-row">
+          <div class="slider-label">Glow <span id="glow-val">5</span></div>
+          <input type="range" min="0" max="10" value="5" oninput="glowStr=+this.value;document.getElementById('glow-val').textContent=this.value" />
+        </div>
+        <div class="slider-row">
+          <div class="slider-label">Anim Speed <span id="speed-val">5</span></div>
+          <input type="range" min="1" max="10" value="5" oninput="animSpeed=+this.value/5;document.getElementById('speed-val').textContent=this.value" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div id="main">
+    <canvas id="three-canvas"></canvas>
+    <canvas id="trail-canvas"></canvas>
+    <div id="rainbow-overlay"></div>
+    <div id="flash"></div>
+
+    <div id="start-overlay">
+      <h2>🖐 Hand Tracker</h2>
+      <div class="tagline">Control 3D shapes with your bare hands.<br>8 shapes · 8 fun modes · combos · sound FX</div>
+      <div class="feature-pills">
+        <span class="pill">🌈 Rainbow</span><span class="pill">💥 Explosions</span>
+        <span class="pill">✨ Trails</span><span class="pill">🌍 Gravity</span>
+        <span class="pill">🎭 Multi-shape</span><span class="pill">🏆 Combos</span>
+      </div>
+      <button id="start-btn" onclick="startCamera()">Enable Camera</button>
+      <div id="loading-msg">Loading MediaPipe... please wait ⏳</div>
+    </div>
+
+    <div id="video-wrap">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="canvas-overlay"></canvas>
+      <div class="video-label">live feed</div>
+    </div>
+
+    <div id="combo-display">
+      <div id="combo-text"></div>
+      <div id="combo-sub"></div>
+    </div>
+    <div id="score-display"><span id="score-num">0</span><small>score</small></div>
+    <div id="gesture-badge">show hand to start</div>
+    <div id="streak-notif"></div>
+    <div id="music-viz"></div>
+    <div id="kbd-hint">keys: 1-8 shapes · r g t x m d w h modes</div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div id="panel-right">
+    <div class="panel-section">
+      <h2>Gesture</h2>
+      <div id="gesture-display">—</div>
+    </div>
+    <div class="panel-section">
+      <h2>Live Data</h2>
+      <div class="data-table">
+        <div class="data-row"><span class="data-key">pos x</span><span class="data-val" id="d-px">0.00</span></div>
+        <div class="data-row"><span class="data-key">pos y</span><span class="data-val" id="d-py">0.00</span></div>
+        <div class="data-row"><span class="data-key">rot x</span><span class="data-val" id="d-rx">0.00</span></div>
+        <div class="data-row"><span class="data-key">rot y</span><span class="data-val" id="d-ry">0.00</span></div>
+        <div class="data-row"><span class="data-key">scale</span><span class="data-val" id="d-sc">1.00</span></div>
+        <div class="data-row"><span class="data-key">speed</span><span class="data-val" id="d-spd">0.0</span></div>
+      </div>
+    </div>
+    <div class="panel-section">
+      <h2>Stats</h2>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="stat-card">
+          <div class="stat-label">Best Combo</div>
+          <div class="stat-value" id="best-combo">0x</div>
+          <div class="stat-sub">switch gestures fast!</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Score</div>
+          <div class="stat-value" id="total-score-panel">0</div>
+          <div class="stat-sub">this session</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Gestures</div>
+          <div class="stat-value" id="gest-count">0</div>
+          <div class="stat-sub">total detected</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM -->
+  <div id="bottom-bar">
+    <div class="gesture-hint"><div class="gh-icon">🤏</div><div><div class="gh-title">Pinch</div><div class="gh-desc">Scale up</div></div></div>
+    <div class="gesture-hint"><div class="gh-icon">🖐</div><div><div class="gh-title">Open Palm</div><div class="gh-desc">Reset + burst</div></div></div>
+    <div class="gesture-hint"><div class="gh-icon">☝️</div><div><div class="gh-title">Point</div><div class="gh-desc">Laser trail</div></div></div>
+    <div class="gesture-hint"><div class="gh-icon">✌️</div><div><div class="gh-title">Peace</div><div class="gh-desc">Cycle shapes</div></div></div>
+    <div class="gesture-hint"><div class="gh-icon">✊</div><div><div class="gh-title">Fist</div><div class="gh-desc">Freeze + spin</div></div></div>
+    <div class="gesture-hint"><div class="gh-icon">🤙</div><div><div class="gh-title">Hang Loose</div><div class="gh-desc">Rainbow burst!</div></div></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1620248257/drawing_utils.js"></script>
+<script>
+// ── AUDIO ───────────────────────────────────────────
+let audioCtx;
+function getAudio(){ if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)(); return audioCtx; }
+function playTone(freq,type='sine',dur=0.15,vol=0.15){
+  try{
+    const a=getAudio(), o=a.createOscillator(), g=a.createGain();
+    o.connect(g); g.connect(a.destination);
+    o.type=type; o.frequency.setValueAtTime(freq,a.currentTime);
+    g.gain.setValueAtTime(vol,a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+dur);
+    o.start(); o.stop(a.currentTime+dur);
+  }catch(e){}
+}
+function playChord(freqs,dur=0.25){ freqs.forEach((f,i)=>setTimeout(()=>playTone(f,'triangle',dur,0.1),i*35)); }
+function playComboSound(n){ const b=220*Math.pow(1.4,Math.min(n-1,7)); playTone(b,'sawtooth',0.08,0.14); setTimeout(()=>playTone(b*1.5,'triangle',0.12,0.1),70); }
+function playExplosion(){ playTone(80,'sawtooth',0.25,0.2); playTone(160,'square',0.18,0.12); }
+function playRainbow(){ playChord([261,330,392,523,659,784],0.35); }
+function playShapeSwitch(idx){ playTone(300+idx*60,'triangle',0.15,0.12); }
+
+// ── STATE ────────────────────────────────────────────
+let sensitivity=5, smoothing=0.1, glowStr=5, animSpeed=1;
+let modes={rainbow:false,gravity:false,trail:false,explode:false,multi:false,disco:false,wobble:false,ghost:false};
+let score=0, combo=0, bestCombo=0, gestureCount=0;
+let comboTimer=null, wireColorHex=0x7ec8e3;
+
+// ── TRAIL ────────────────────────────────────────────
+const trailCanvas=document.getElementById('trail-canvas');
+const tctx=trailCanvas.getContext('2d');
+let trailPoints=[];
+function resizeTrailCanvas(){ const m=document.getElementById('main'); trailCanvas.width=m.clientWidth; trailCanvas.height=m.clientHeight; }
+
+// ── THREE.JS ─────────────────────────────────────────
+const canvas3d=document.getElementById('three-canvas');
+const mainDiv=document.getElementById('main');
+const renderer=new THREE.WebGLRenderer({canvas:canvas3d,antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x07080f,1);
+const scene=new THREE.Scene();
+scene.fog=new THREE.Fog(0x07080f,12,35);
+const cam=new THREE.PerspectiveCamera(55,1,0.1,100);
+cam.position.z=5;
+
+function resizeAll(){ const w=mainDiv.clientWidth,h=mainDiv.clientHeight; renderer.setSize(w,h); cam.aspect=w/h; cam.updateProjectionMatrix(); resizeTrailCanvas(); }
+resizeAll();
+window.addEventListener('resize',resizeAll);
+
+// Lights
+const ambLight=new THREE.AmbientLight(0x223344,0.8); scene.add(ambLight);
+const dirLight=new THREE.DirectionalLight(0xffffff,0.9); dirLight.position.set(5,8,5); scene.add(dirLight);
+const pt1=new THREE.PointLight(0x7ec8e3,1.5,18); pt1.position.set(-4,3,3); scene.add(pt1);
+const pt2=new THREE.PointLight(0xff6b9d,0.8,14); pt2.position.set(4,-3,2); scene.add(pt2);
+const ptCenter=new THREE.PointLight(0xffffff,0.4,8); scene.add(ptCenter);
+
+// Geometries
+const geos=[
+  new THREE.BoxGeometry(1.5,1.5,1.5),
+  new THREE.SphereGeometry(1.0,40,40),
+  new THREE.TorusGeometry(0.75,0.32,24,80),
+  new THREE.OctahedronGeometry(1.1),
+  new THREE.IcosahedronGeometry(1.0),
+  new THREE.ConeGeometry(0.9,1.8,32),
+  new THREE.TorusKnotGeometry(0.6,0.2,100,16),
+  new THREE.TorusGeometry(0.9,0.12,16,100),
+];
+
+const solidMat=new THREE.MeshPhongMaterial({color:0x0d1520,emissive:0x040810,specular:0x7ec8e3,shininess:120,transparent:true,opacity:0.88});
+const wireMat=new THREE.MeshBasicMaterial({color:0x7ec8e3,wireframe:true,transparent:true,opacity:0.45});
+
+let currentGeo=0;
+let mainMesh=new THREE.Mesh(geos[0],solidMat);
+let wireMesh=new THREE.Mesh(geos[0],wireMat);
+scene.add(mainMesh); scene.add(wireMesh);
+
+// Clones for multi mode
+let clones=[];
+function buildClones(){
+  clones.forEach(c=>{scene.remove(c.m);scene.remove(c.w);});
+  clones=[];
+  if(!modes.multi) return;
+  const cols=[0xff6b9d,0x4ecca3,0xa78bfa,0xf7c59f];
+  for(let i=0;i<4;i++){
+    const cm=new THREE.Mesh(geos[currentGeo],new THREE.MeshPhongMaterial({color:0x0d1520,specular:cols[i],shininess:80,transparent:true,opacity:0.6}));
+    const cw=new THREE.Mesh(geos[currentGeo],new THREE.MeshBasicMaterial({color:cols[i],wireframe:true,transparent:true,opacity:0.3}));
+    scene.add(cm); scene.add(cw);
+    clones.push({m:cm,w:cw,angle:i*Math.PI/2,col:cols[i]});
+  }
+}
+
+// Particles
+let particleSystem;
+function buildParticles(n=150){
+  if(particleSystem) scene.remove(particleSystem);
+  const geo=new THREE.BufferGeometry();
+  const pos=new Float32Array(n*3);
+  for(let i=0;i<n*3;i++) pos[i]=(Math.random()-0.5)*22;
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  particleSystem=new THREE.Points(geo,new THREE.PointsMaterial({color:0x1a2a3a,size:0.06,transparent:true,opacity:0.8}));
+  scene.add(particleSystem);
+}
+buildParticles();
+
+// Grid + ring
+const gridHelper=new THREE.GridHelper(30,40,0x0d1420,0x0a1018); gridHelper.position.y=-3; scene.add(gridHelper);
+const ring=new THREE.Mesh(new THREE.TorusGeometry(2.2,0.012,8,70),new THREE.MeshBasicMaterial({color:0x1a2a3a,transparent:true,opacity:0.6}));
+scene.add(ring);
+
+// ── CONTROLS ─────────────────────────────────────────
+window.setShape=function(idx){
+  document.querySelectorAll('.shape-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));
+  scene.remove(mainMesh); scene.remove(wireMesh);
+  currentGeo=idx;
+  mainMesh=new THREE.Mesh(geos[idx],solidMat);
+  wireMesh=new THREE.Mesh(geos[idx],wireMat);
+  mainMesh.scale.setScalar(curScale); wireMesh.scale.setScalar(curScale);
+  scene.add(mainMesh); scene.add(wireMesh);
+  buildClones();
+  playShapeSwitch(idx);
+};
+
+window.setWireColor=function(hex,el){
+  document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+  el.classList.add('active');
+  wireColorHex=hex; wireMat.color.setHex(hex);
+  playTone(600,'sine',0.1,0.08);
+};
+
+window.toggleMode=function(mode){
+  modes[mode]=!modes[mode];
+  const btn=document.getElementById('btn-'+mode);
+  btn.classList.remove('on','on-hot');
+  if(modes[mode]) btn.classList.add(mode==='explode'?'on-hot':'on');
+  if(mode==='multi') buildClones();
+  if(mode==='rainbow') document.getElementById('rainbow-overlay').style.opacity=modes.rainbow?'1':'0';
+  if(mode==='ghost'){solidMat.opacity=modes.ghost?0.15:0.88; wireMat.opacity=modes.ghost?0.95:0.45;}
+  playTone(modes[mode]?660:380,'sine',0.08,0.08);
+};
+
+// ── EXPLOSIONS ───────────────────────────────────────
+function spawnExplosion(cx,cy,color='#7ec8e3',count=12){
+  const rect=mainDiv.getBoundingClientRect();
+  const px=rect.width/2+cx*(rect.width/9);
+  const py=rect.height/2-cy*(rect.height/7);
+  for(let i=0;i<count;i++){
+    const el=document.createElement('div');
+    el.className='explosion-particle';
+    const angle=(i/count)*Math.PI*2+Math.random()*0.5;
+    const dist=30+Math.random()*90;
+    const size=4+Math.random()*8;
+    el.style.cssText=`left:${px}px;top:${py}px;width:${size}px;height:${size}px;background:${color};--tx:${Math.cos(angle)*dist}px;--ty:${Math.sin(angle)*dist}px;`;
+    mainDiv.appendChild(el);
+    setTimeout(()=>el.remove(),1000);
+  }
+}
+
+function flashScreen(color='rgba(255,255,255,0.25)'){
+  const f=document.getElementById('flash');
+  f.style.background=color; f.style.opacity='1';
+  setTimeout(()=>f.style.opacity='0',100);
+}
+
+// ── COMBO ────────────────────────────────────────────
+const comboLabels=['','NICE!','COOL!','GREAT!','AWESOME!','INSANE!','GODLIKE!','LEGENDARY!','MYTHIC!'];
+const comboColors=['#7ec8e3','#4ecca3','#f7c59f','#ff6b9d','#a78bfa','#ffd700','#ff4444','#ff44ff'];
+
+function addCombo(){
+  combo++;
+  if(combo>bestCombo){ bestCombo=combo; document.getElementById('best-combo').textContent=bestCombo+'x'; }
+  const pts=combo*10*(modes.rainbow?2:1);
+  score+=pts;
+  document.getElementById('score-num').textContent=score;
+  document.getElementById('total-score-panel').textContent=score;
+  showComboDisplay(combo);
+  playComboSound(combo);
+  if(comboTimer) clearTimeout(comboTimer);
+  comboTimer=setTimeout(()=>{ combo=0; document.getElementById('combo-display').style.opacity='0'; },3500);
+  if(combo>=5) showStreak(combo);
+}
+
+function showComboDisplay(n){
+  const el=document.getElementById('combo-display');
+  document.getElementById('combo-text').textContent=n+'x';
+  document.getElementById('combo-sub').textContent=comboLabels[Math.min(n,comboLabels.length-1)]||'UNSTOPPABLE!!';
+  el.style.opacity='1';
+  el.style.color=comboColors[Math.min(n-1,comboColors.length-1)];
+  el.style.fontSize=Math.min(60+n*5,110)+'px';
+}
+
+function showStreak(n){
+  const el=document.getElementById('streak-notif');
+  el.textContent='🔥 '+n+' COMBO STREAK!';
+  el.style.opacity='1';
+  setTimeout(()=>el.style.opacity='0',2200);
+}
+
+// ── MUSIC VISUALIZER ─────────────────────────────────
+const vizEl=document.getElementById('music-viz');
+for(let i=0;i<36;i++){ const b=document.createElement('div'); b.className='viz-bar'; vizEl.appendChild(b); }
+const vizBars=vizEl.querySelectorAll('.viz-bar');
+let vizPhase=0;
+function updateViz(active){
+  vizPhase+=0.08;
+  vizBars.forEach((b,i)=>{
+    const h=active?(Math.sin(vizPhase+i*0.35)*0.5+0.5)*32+2:2;
+    b.style.height=h+'px';
+    b.style.background=modes.rainbow?`hsl(${(Date.now()*0.08+i*10)%360},80%,60%)`:modes.disco?`hsl(${(i*30+Date.now()*0.2)%360},80%,60%)`:'var(--accent)';
+  });
+  vizEl.style.opacity=active?'0.55':'0.2';
+}
+
+// ── HAND STATE ───────────────────────────────────────
+let targetX=0,targetY=0,targetScale=1;
+let targetRX=0,targetRY=0;
+let curX=0,curY=0,curScale=1,curRX=0,curRY=0;
+let prevX=0,prevY=0;
+let handVisible=false,lastGesture='',frozenRotation=false,frozenRX=0,frozenRY=0;
+let autoCycle=false,autoCycleTimer=null;
+let wobbleTime=0, gravityVelY=0;
+
+function dist2D(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
+
+function detectGesture(lm){
+  const thumb=lm[4],index=lm[8],middle=lm[12],ring=lm[16],pinky=lm[20];
+  const wrist=lm[0],indexMCP=lm[5];
+  const palmSize=dist2D(wrist,indexMCP);
+
+  if(dist2D(thumb,index)/palmSize<0.3) return 'pinch';
+
+  const tips=[index,middle,ring,pinky];
+  const mcps=[lm[5],lm[9],lm[13],lm[17]];
+  let extended=0;
+  tips.forEach((t,i)=>{ if(t.y<mcps[i].y) extended++; });
+
+  if(extended>=4) return 'open palm';
+  const iUp=index.y<lm[6].y, mUp=middle.y<lm[10].y;
+  const rDown=ring.y>lm[14].y, pDown=pinky.y>lm[18].y;
+  const pinkUp=pinky.y<lm[18].y;
+
+  if(iUp&&mUp&&rDown&&pDown) return 'peace';
+  if(iUp&&!mUp&&rDown&&pDown) return 'point';
+  if(!iUp&&!mUp&&rDown&&pDown) return 'fist';
+  if(!iUp&&!mUp&&rDown&&pinkUp&&dist2D(thumb,lm[2])>0.12) return 'hang loose';
+  return 'relaxed';
+}
+
+// Trail draw
+function drawTrail(){
+  tctx.clearRect(0,0,trailCanvas.width,trailCanvas.height);
+  if(!modes.trail||trailPoints.length<2) return;
+  for(let i=1;i<trailPoints.length;i++){
+    const t=i/trailPoints.length;
+    const hue=modes.rainbow?(Date.now()*0.08+i*9)%360:200;
+    tctx.strokeStyle=`hsla(${hue},80%,65%,${t*0.75})`;
+    tctx.lineWidth=3*t;
+    tctx.lineCap='round';
+    tctx.beginPath();
+    tctx.moveTo(trailPoints[i-1].x,trailPoints[i-1].y);
+    tctx.lineTo(trailPoints[i].x,trailPoints[i].y);
+    tctx.stroke();
+  }
+}
+
+// Video + overlay
+const video=document.getElementById('video');
+const overlayCanvas=document.getElementById('canvas-overlay');
+const octx=overlayCanvas.getContext('2d');
+function syncOverlay(){ overlayCanvas.width=video.videoWidth||150; overlayCanvas.height=video.videoHeight||112; }
+
+// ── MEDIAPIPE ─────────────────────────────────────────
+function onResults(results){
+  octx.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
+  const hasHand=results.multiHandLandmarks&&results.multiHandLandmarks.length>0;
+  updateViz(hasHand);
+
+  if(hasHand){
+    handVisible=true;
+    document.getElementById('status-dot').classList.add('active');
+    document.getElementById('status-txt').textContent='tracking ✓';
+
+    const lm=results.multiHandLandmarks[0];
+    drawConnectors(octx,lm,HAND_CONNECTIONS,{color:'rgba(126,200,227,0.7)',lineWidth:1.5});
+    drawLandmarks(octx,lm,{color:'rgba(255,107,157,0.9)',lineWidth:1,radius:2.5});
+
+    const palmX=(lm[0].x+lm[5].x+lm[9].x+lm[13].x+lm[17].x)/5;
+    const palmY=(lm[0].y+lm[5].y+lm[9].y+lm[13].y+lm[17].y)/5;
+    const sens=sensitivity*0.6;
+    targetX=(0.5-palmX)*sens;
+    targetY=(0.5-palmY)*sens*0.7;
+
+    if(modes.gravity){ gravityVelY-=0.004; targetY+=gravityVelY; if(targetY<-3){targetY=-3;gravityVelY=0;} }
+
+    const dxH=lm[9].x-lm[0].x, dyH=lm[9].y-lm[0].y;
+    targetRY=dxH*4; targetRX=dyH*3;
+
+    // Trail point
+    if(modes.trail){
+      const mx=trailCanvas.width/2+curX*(trailCanvas.width/9);
+      const my=trailCanvas.height/2-curY*(trailCanvas.height/7);
+      trailPoints.push({x:mx,y:my});
+      if(trailPoints.length>70) trailPoints.shift();
+    } else { trailPoints=[]; }
+
+    const gesture=detectGesture(lm);
+    const gestEl=document.getElementById('gesture-display');
+    const badge=document.getElementById('gesture-badge');
+
+    if(gesture!==lastGesture&&gesture!=='relaxed'){
+      gestureCount++;
+      document.getElementById('gest-count').textContent=gestureCount;
+      addCombo();
+    }
+    lastGesture=gesture;
+    gestEl.textContent=gesture;
+    badge.textContent='✋ '+gesture;
+
+    // Per-gesture logic
+    const setColors=(g,w,b)=>{ gestEl.style.color=g; badge.style.borderColor=b; badge.style.color=b; };
+
+    if(gesture==='pinch'){
+      targetScale=Math.min(targetScale+0.022,3.5);
+      setColors('#ff6b9d',0xff6b9d,'#ff6b9d');
+      solidMat.emissive.setHex(0x200a18);
+      if(modes.explode&&Math.random()<0.12){ spawnExplosion(curX,curY,'#ff6b9d',10); playExplosion(); }
+    } else if(gesture==='open palm'){
+      const wasLarge=targetScale>1.6;
+      targetScale=1.0; gravityVelY=0;
+      setColors('#4ecca3',0x4ecca3,'#4ecca3');
+      solidMat.emissive.setHex(0x040810);
+      wireMat.color.setHex(wireColorHex);
+      if(wasLarge){ spawnExplosion(curX,curY,'#4ecca3',18); flashScreen('rgba(78,204,163,0.12)'); playChord([523,659,784],0.3); }
+    } else if(gesture==='point'){
+      setColors('#f7c59f',0xf7c59f,'#f7c59f');
+      wireMat.color.setHex(0xf7c59f); pt1.color.setHex(0xf7c59f);
+    } else if(gesture==='fist'){
+      frozenRotation=true; frozenRX=curRX; frozenRY=curRY;
+      setColors('#a78bfa',0xa78bfa,'#a78bfa');
+    } else if(gesture==='peace'){
+      if(!autoCycle){ autoCycle=true; autoCycleTimer=setInterval(()=>setShape((currentGeo+1)%geos.length),750); }
+      setColors('#7ec8e3',0x7ec8e3,'#7ec8e3');
+    } else if(gesture==='hang loose'){
+      playRainbow();
+      spawnExplosion(curX,curY,'#ffd700',22);
+      flashScreen('rgba(255,215,0,0.18)');
+      for(let i=0;i<6;i++) setTimeout(()=>spawnExplosion((Math.random()-0.5)*4,(Math.random()-0.5)*2.5,`hsl(${Math.random()*360},80%,60%)`,12),i*100);
+      setColors('#ffd700',0xffd700,'#ffd700');
+    } else {
+      if(gesture!=='fist') frozenRotation=false;
+      if(autoCycle){ autoCycle=false; clearInterval(autoCycleTimer); }
+      setColors('white',wireColorHex,'rgba(126,200,227,0.4)');
+      wireMat.color.setHex(wireColorHex);
+      solidMat.emissive.setHex(0x040810);
+      pt1.color.setHex(0x7ec8e3);
+    }
+  } else {
+    handVisible=false;
+    document.getElementById('status-dot').classList.remove('active');
+    document.getElementById('status-txt').textContent='no hand detected';
+    document.getElementById('gesture-display').textContent='—';
+    document.getElementById('gesture-display').style.color='white';
+    document.getElementById('gesture-badge').textContent='show hand to start';
+    document.getElementById('gesture-badge').style.borderColor='var(--border)';
+    document.getElementById('gesture-badge').style.color='var(--accent)';
+    lastGesture=''; frozenRotation=false; gravityVelY=0;
+    if(autoCycle){ autoCycle=false; clearInterval(autoCycleTimer); }
+    targetX*=0.9; targetY*=0.9; targetRX*=0.9; targetRY*=0.9; targetScale=1;
+    trailPoints=[];
+  }
+}
+
+// ── ANIMATION LOOP ────────────────────────────────────
+const clock=new THREE.Clock();
+let frameCount=0, lastFpsTime=0;
+const rainbowCols=[0x7ec8e3,0xff6b9d,0x4ecca3,0xf7c59f,0xa78bfa,0xffd700];
+let discoClock=0;
+
+function animate(){
+  requestAnimationFrame(animate);
+  const t=clock.getElapsedTime()*animSpeed;
+
+  frameCount++;
+  if(t-lastFpsTime>1){ document.getElementById('fps-display').textContent=frameCount+' fps'; frameCount=0; lastFpsTime=t; }
+
+  const lp=smoothing;
+  prevX=curX; prevY=curY;
+  curX+=(targetX-curX)*lp;
+  curY+=(targetY-curY)*lp;
+  curScale+=(targetScale-curScale)*lp;
+  curRX+=(targetRX-curRX)*lp;
+  curRY+=(targetRY-curRY)*lp;
+
+  const velX=curX-prevX, velY=curY-prevY;
+
+  // Wobble
+  let wx=0,wy=0;
+  if(modes.wobble){ wobbleTime+=0.06; wx=Math.sin(wobbleTime*2.2)*0.35; wy=Math.cos(wobbleTime*3.1)*0.22; }
+
+  mainMesh.position.set(curX+wx,curY+wy,0);
+  wireMesh.position.set(curX+wx,curY+wy,0);
+  mainMesh.scale.setScalar(Math.max(0.05,curScale));
+  wireMesh.scale.setScalar(Math.max(0.05,curScale));
+
+  // Rotation
+  if(frozenRotation){
+    mainMesh.rotation.set(frozenRX,frozenRY,t*2);
+    wireMesh.rotation.set(frozenRX,frozenRY,t*2);
+  } else if(!handVisible){
+    mainMesh.rotation.x=t*0.3; mainMesh.rotation.y=t*0.5;
+    wireMesh.rotation.x=t*0.3; wireMesh.rotation.y=t*0.5;
+  } else {
+    mainMesh.rotation.set(curRX,curRY,0);
+    wireMesh.rotation.set(curRX,curRY,0);
+  }
+
+  // Disco
+  if(modes.disco){ discoClock+=0.04; if(discoClock>0.3){ discoClock=0; const ci=Math.floor(Math.random()*rainbowCols.length); wireMat.color.setHex(rainbowCols[ci]); pt1.color.setHex(rainbowCols[(ci+2)%rainbowCols.length]); pt2.color.setHex(rainbowCols[(ci+4)%rainbowCols.length]); } }
+  // Rainbow
+  if(modes.rainbow&&!modes.disco){ wireMat.color.setHSL((t*50%360)/360,0.85,0.62); pt1.color.setHSL(((t*50+120)%360)/360,0.8,0.6); }
+
+  // Glow
+  pt1.intensity=(glowStr*0.12)+Math.sin(t*2.5)*0.35;
+  pt2.intensity=(glowStr*0.06)+Math.sin(t*1.8+1)*0.18;
+  ptCenter.position.set(curX+wx,curY+wy,0);
+
+  // Clones orbit
+  clones.forEach((c,i)=>{
+    c.angle+=0.009*animSpeed;
+    const r=2.5+Math.sin(t*0.5+i)*0.3;
+    c.m.position.set(curX+Math.cos(c.angle)*r, curY+Math.sin(c.angle)*r,0);
+    c.w.position.copy(c.m.position);
+    c.m.rotation.x=t*0.5+i; c.m.rotation.y=t*0.7+i;
+    c.w.rotation.copy(c.m.rotation);
+    c.m.scale.setScalar(0.45); c.w.scale.setScalar(0.45);
+  });
+
+  // Particles + ring
+  if(particleSystem) particleSystem.rotation.y=t*0.018;
+  ring.rotation.x=t*0.12; ring.rotation.z=t*0.09;
+  ring.material.color.setHSL((t*15%360)/360,0.4,0.3);
+  gridHelper.position.y=-3+Math.sin(t*0.4)*0.04;
+
+  drawTrail();
+
+  // UI update
+  const spd=Math.hypot(velX,velY)*1000;
+  document.getElementById('d-spd').textContent=spd.toFixed(1);
+  document.getElementById('d-px').textContent=curX.toFixed(2);
+  document.getElementById('d-py').textContent=curY.toFixed(2);
+  document.getElementById('d-rx').textContent=curRX.toFixed(2);
+  document.getElementById('d-ry').textContent=curRY.toFixed(2);
+  document.getElementById('d-sc').textContent=curScale.toFixed(2);
+
+  renderer.render(scene,cam);
+}
+animate();
+
+// ── KEYBOARD SHORTCUTS ────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key>='1'&&e.key<='8') setShape(+e.key-1);
+  const map={r:'rainbow',g:'gravity',t:'trail',x:'explode',m:'multi',d:'disco',w:'wobble',h:'ghost'};
+  if(map[e.key.toLowerCase()]) toggleMode(map[e.key.toLowerCase()]);
+});
+
+// ── START CAMERA ──────────────────────────────────────
+window.startCamera=async function(){
+  const btn=document.getElementById('start-btn'),lm=document.getElementById('loading-msg');
+  btn.disabled=true; btn.textContent='Requesting camera...'; lm.style.display='block';
+
+  const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`});
+  hands.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:0.72,minTrackingConfidence:0.65});
+  hands.onResults(onResults);
+
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'}});
+    video.srcObject=stream; video.onloadedmetadata=syncOverlay;
+    document.getElementById('start-overlay').style.display='none';
+    document.getElementById('video-wrap').style.display='block';
+    document.getElementById('status-txt').textContent='initializing...';
+    new Camera(video,{onFrame:async()=>await hands.send({image:video}),width:640,height:480}).start();
+    setTimeout(()=>playChord([261,330,392,523],0.4),600);
+  }catch(err){
+    btn.disabled=false; btn.textContent='Camera Denied — Retry';
+    lm.textContent='Allow camera in browser settings and retry.';
+    document.getElementById('status-txt').textContent='camera denied';
+  }
+};
+</script>
+</body>
+</html>
